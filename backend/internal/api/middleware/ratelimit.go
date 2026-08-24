@@ -57,9 +57,12 @@ func RateLimit(rdb *redis.Client, name string, limit int, window time.Duration, 
 			key = fmt.Sprintf("rl:%s:ip:%s", name, c.ClientIP())
 		}
 
+		// ctx 只用于本次 Redis 检查，绝不能写回 c.Request。
+		// 500ms 超时一旦泄漏到下游 handler，Redis 抖动降级放行后，业务 DB
+		// 调用会在 ~500ms 处集体 context deadline exceeded → 500 INTERNAL_ERROR。
+		// 后续业务必须继续使用原请求的时间预算。
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 500*time.Millisecond)
 		defer cancel()
-		c.Request = c.Request.WithContext(ctx)
 
 		pipe := rdb.Pipeline()
 		incr := pipe.Incr(ctx, key)
